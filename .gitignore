@@ -1,0 +1,13 @@
+node_modules
+.playwright-cli/
+dist/
+.local/
+.agents/
+.replit
+output/
+.DS_Store
+.local/
+.agents/
+.replit
+output/
+.DS_Store
