@@ -24,7 +24,7 @@ interface ContextLike {
 }
 
 interface SearchResult {
-  place_id: number;
+  place_id: number | string;
   lat: string;
   lon: string;
   display_name: string;
@@ -53,6 +53,40 @@ interface OpenMeteoGeocodingResult {
   longitude: number;
   country_code?: string;
   admin1?: string;
+}
+
+interface FaaStation {
+  icaoId: string;
+  iataId?: string;
+  faa?: string;
+  site: string;
+  state: string;
+  country: string;
+  lat: number;
+  lon: number;
+  elev?: number;
+}
+
+function faaStationToSearchResult(station: FaaStation): SearchResult {
+  const code = station.icaoId || station.faa || "";
+  return {
+    place_id: `faa-${code}`,
+    lat: String(station.lat),
+    lon: String(station.lon),
+    display_name: `${station.site}, ${station.state}, United States`,
+    type: "aerodrome",
+    class: "aeroway",
+    address: {
+      city: station.site,
+      state: station.state,
+      country_code: "us",
+    },
+    extratags: {
+      icao: station.icaoId || undefined,
+      iata: station.iataId || undefined,
+      ref: station.faa || station.icaoId || undefined,
+    },
+  };
 }
 
 const PRESSURE_LEVELS = [
@@ -209,7 +243,7 @@ function bestAirportCodeFromResult(result: SearchResult): string | null {
 }
 
 function dedupeByPlaceId(results: SearchResult[]): SearchResult[] {
-  const seen = new Set<number>();
+  const seen = new Set<number | string>();
   return results.filter((result) => {
     if (seen.has(result.place_id)) return false;
     seen.add(result.place_id);
@@ -433,6 +467,7 @@ export async function fetchSearchResults(context: ContextLike, query: string): P
   const trimmed = query.trim();
   const normalizedCodeQuery = trimmed.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const looksLikeAirportCode = /^[A-Z0-9]{3,4}$/.test(normalizedCodeQuery);
+  const looksLikeFaaId = /^[A-Z0-9]{2,6}$/.test(normalizedCodeQuery) && /[A-Z]/.test(normalizedCodeQuery);
   const nominatimParams = new URLSearchParams({
     q: trimmed,
     format: "json",
@@ -442,16 +477,34 @@ export async function fetchSearchResults(context: ContextLike, query: string): P
     limit: "8",
   });
 
-  const nominatim = await fetchCachedJson<SearchResult[]>(
-    context,
-    "/api/search/nominatim",
-    nominatimParams,
-    `https://nominatim.openstreetmap.org/search?${nominatimParams.toString()}`,
-    86400,
-    604800,
-  ).catch(() => []);
+  // Run Nominatim and FAA stationinfo lookups in parallel
+  const faaStationParams = new URLSearchParams({ ids: normalizedCodeQuery, format: "json" });
+  const [nominatim, faaStations] = await Promise.all([
+    fetchCachedJson<SearchResult[]>(
+      context,
+      "/api/search/nominatim",
+      nominatimParams,
+      `https://nominatim.openstreetmap.org/search?${nominatimParams.toString()}`,
+      86400,
+      604800,
+    ).catch(() => []),
+    looksLikeFaaId
+      ? fetchCachedJson<FaaStation[]>(
+          context,
+          `/api/search/faa-station/${normalizedCodeQuery}`,
+          faaStationParams,
+          `https://aviationweather.gov/api/data/stationinfo?${faaStationParams.toString()}`,
+          86400,
+          604800,
+        ).catch(() => [])
+      : Promise.resolve([]),
+  ]);
 
-  let results = prioritizeSearchResults(dedupeByPlaceId(nominatim.filter(isUSResult)), trimmed);
+  const faaResults = (faaStations ?? []).filter((s) => s.country === "US").map(faaStationToSearchResult);
+  let results = prioritizeSearchResults(
+    dedupeByPlaceId([...faaResults, ...nominatim.filter(isUSResult)]),
+    trimmed,
+  );
 
   if (results.filter((item) => bestAirportCodeFromResult(item)).length === 0) {
     const geoParams = new URLSearchParams({

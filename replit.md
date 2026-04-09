@@ -49,6 +49,7 @@ Aviation/balloon weather app built with React + Vite + Tailwind CSS. Displays re
 
 ## Development
 - Run: `npm run dev` (starts Vite dev server on port 5000)
+- Local frontend dev proxies `/api/*` and `/auth/*` to `VITE_API_PROXY_TARGET` so Cloudflare Pages Functions stay reachable outside Pages runtime
 - Build: `npm run build`
 
 ## Deployment
