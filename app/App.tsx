@@ -607,7 +607,9 @@ export default function App() {
             : Promise.resolve(null),
         ]);
 
-        const faaResults = (faaStationData ?? []).filter((s) => s.country === "US").map(faaStationToSearchResult);
+        const faaResults = Array.isArray(faaStationData)
+          ? faaStationData.filter((s) => s.country === "US").map(faaStationToSearchResult)
+          : [];
         const usProxyResults = (proxyData ?? []).filter(isUSResult);
         const airportProxyResults = usProxyResults.filter(isIcaoAirportResult);
 
@@ -659,7 +661,9 @@ export default function App() {
             `/api/aviationweather?type=stationinfo&bbox=${encodeURIComponent(bbox)}&format=json`,
             2000,
           ).catch(() => null);
-          const nearbyFaaResults = (nearbyStations ?? []).filter((s) => s.country === "US").map(faaStationToSearchResult);
+          const nearbyFaaResults = Array.isArray(nearbyStations)
+            ? nearbyStations.filter((s) => s.country === "US").map(faaStationToSearchResult)
+            : [];
           if (nearbyFaaResults.length > 0 && !cancelled) {
             setSearchResults(prioritizeSearchResults(nearbyFaaResults, query, userCoordinates));
             return;
