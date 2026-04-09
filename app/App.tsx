@@ -41,7 +41,7 @@ const navTabs = [
 ] as const;
 
 interface SearchResult {
-  place_id: number;
+  place_id: number | string;
   lat: string;
   lon: string;
   display_name: string;
@@ -88,6 +88,18 @@ const SELECTED_LOCATION_ID_STORAGE_KEY = "weather.griff.selectedLocationId.v1";
 interface UserCoordinates {
   lat: number;
   lon: number;
+}
+
+interface FaaStation {
+  icaoId: string;
+  iataId?: string;
+  faa?: string;
+  site: string;
+  state: string;
+  country: string;
+  lat: number;
+  lon: number;
+  elev?: number;
 }
 
 async function safeParseJson<T>(res: Response): Promise<T | null> {
@@ -192,6 +204,53 @@ function isIcaoAirportResult(result: SearchResult): boolean {
   return bestAirportCodeFromResult(result) !== null;
 }
 
+function faaStationToSearchResult(station: FaaStation): SearchResult {
+  const code = station.icaoId || station.faa || "";
+  return {
+    place_id: `faa-${code}`,
+    lat: String(station.lat),
+    lon: String(station.lon),
+    display_name: `${station.site}, ${station.state}, United States`,
+    type: "aerodrome",
+    class: "aeroway",
+    address: {
+      city: station.site,
+      state: station.state,
+      country_code: "us",
+    },
+    extratags: {
+      icao: station.icaoId || undefined,
+      iata: station.iataId || undefined,
+      ref: station.faa || station.icaoId || undefined,
+    },
+  };
+}
+
+function parseCoordinates(input: string): { lat: number; lon: number } | null {
+  const s = input.trim();
+
+  // DMS: 47-11-44.365 N / 122-1-19.402 W  or  47-11-44 N, 122-1-19 W
+  const dmsMatch = s.match(
+    /^(\d{1,3})-(\d{1,2})-(\d{1,2}(?:\.\d+)?)\s*([NS])\s*[/,]\s*(\d{1,3})-(\d{1,2})-(\d{1,2}(?:\.\d+)?)\s*([EW])$/i,
+  );
+  if (dmsMatch) {
+    const [, d1, m1, s1, ns, d2, m2, s2, ew] = dmsMatch;
+    const lat = (Number(d1) + Number(m1) / 60 + Number(s1) / 3600) * (ns.toUpperCase() === "S" ? -1 : 1);
+    const lon = (Number(d2) + Number(m2) / 60 + Number(s2) / 3600) * (ew.toUpperCase() === "W" ? -1 : 1);
+    if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) return { lat, lon };
+  }
+
+  // Decimal degrees: 47.1957, -122.022  or  47.1957 -122.022
+  const decMatch = s.match(/^(-?\d{1,3}(?:\.\d+)?)[,\s]+(-?\d{1,3}(?:\.\d+)?)$/);
+  if (decMatch) {
+    const lat = Number(decMatch[1]);
+    const lon = Number(decMatch[2]);
+    if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) return { lat, lon };
+  }
+
+  return null;
+}
+
 function normalizeOfficeCode(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const cleaned = value.trim().toUpperCase();
@@ -274,7 +333,7 @@ function pickNearbyMajorStations(features: any[], currentAirport: string): strin
 }
 
 function dedupeByPlaceId(results: SearchResult[]): SearchResult[] {
-  const seen = new Set<number>();
+  const seen = new Set<number | string>();
   const output: SearchResult[] = [];
   for (const result of results) {
     if (seen.has(result.place_id)) continue;
@@ -497,8 +556,30 @@ export default function App() {
       setIsSearching(true);
       try {
         const query = debouncedQuery.trim();
+
+        // Handle coordinate input first (DMS or decimal degrees)
+        const parsedCoords = parseCoordinates(query);
+        if (parsedCoords) {
+          const syntheticResult: SearchResult = {
+            place_id: `coords-${parsedCoords.lat.toFixed(6)}-${parsedCoords.lon.toFixed(6)}`,
+            lat: String(parsedCoords.lat),
+            lon: String(parsedCoords.lon),
+            display_name: `${parsedCoords.lat.toFixed(4)}°N, ${Math.abs(parsedCoords.lon).toFixed(4)}°${parsedCoords.lon < 0 ? "W" : "E"}`,
+            type: "coordinates",
+            class: "place",
+            address: { country_code: "us" },
+            extratags: { ref: "ARPT" },
+          };
+          if (!cancelled) {
+            setSearchResults([syntheticResult]);
+            setIsSearching(false);
+          }
+          return;
+        }
+
         const normalizedCodeQuery = query.toUpperCase().replace(/[^A-Z0-9]/g, "");
         const looksLikeAirportCode = /^[A-Z0-9]{3,4}$/.test(normalizedCodeQuery);
+        const looksLikeFaaId = /^[A-Z0-9]{2,6}$/.test(normalizedCodeQuery) && /[A-Z]/.test(normalizedCodeQuery);
         const proxyParams = new URLSearchParams({
           q: query,
           limit: "8",
@@ -515,17 +596,26 @@ export default function App() {
           proxyParams.set("viewbox", `${left},${top},${right},${bottom}`);
         }
 
-        const proxyData = await fetchJsonWithTimeout<SearchResult[]>(
-          `/api/position/search?${proxyParams.toString()}`,
-          1800,
-        );
+        // Run Nominatim and FAA stationinfo lookups in parallel
+        const [proxyData, faaStationData] = await Promise.all([
+          fetchJsonWithTimeout<SearchResult[]>(`/api/position/search?${proxyParams.toString()}`, 1800),
+          looksLikeFaaId
+            ? fetchJsonWithTimeout<FaaStation[]>(
+                `/api/aviationweather?type=stationinfo&ids=${encodeURIComponent(normalizedCodeQuery)}&format=json`,
+                2000,
+              ).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+
+        const faaResults = (faaStationData ?? []).filter((s) => s.country === "US").map(faaStationToSearchResult);
         const usProxyResults = (proxyData ?? []).filter(isUSResult);
         const airportProxyResults = usProxyResults.filter(isIcaoAirportResult);
-        if (airportProxyResults.length > 0) {
+
+        // FAA stationinfo results are authoritative — merge them first
+        const combinedAirportResults = dedupeByPlaceId([...faaResults, ...airportProxyResults]);
+        if (combinedAirportResults.length > 0) {
           if (!cancelled) {
-            setSearchResults(
-              prioritizeSearchResults(dedupeByPlaceId(airportProxyResults), query, userCoordinates),
-            );
+            setSearchResults(prioritizeSearchResults(combinedAirportResults, query, userCoordinates));
           }
           return;
         }
@@ -554,6 +644,26 @@ export default function App() {
             );
           }
           return;
+        }
+
+        // For Nominatim aerodrome results lacking a known airport code, try bbox stationinfo
+        const aerodromeNoCode = usDirectResults.filter(
+          (r) => (r.class === "aeroway" || r.type === "aerodrome") && !bestAirportCodeFromResult(r),
+        );
+        if (aerodromeNoCode.length > 0) {
+          const r = aerodromeNoCode[0];
+          const rLat = parseFloat(r.lat);
+          const rLon = parseFloat(r.lon);
+          const bbox = `${(rLat - 0.5).toFixed(3)},${(rLat + 0.5).toFixed(3)},${(rLon - 0.5).toFixed(3)},${(rLon + 0.5).toFixed(3)}`;
+          const nearbyStations = await fetchJsonWithTimeout<FaaStation[]>(
+            `/api/aviationweather?type=stationinfo&bbox=${encodeURIComponent(bbox)}&format=json`,
+            2000,
+          ).catch(() => null);
+          const nearbyFaaResults = (nearbyStations ?? []).filter((s) => s.country === "US").map(faaStationToSearchResult);
+          if (nearbyFaaResults.length > 0 && !cancelled) {
+            setSearchResults(prioritizeSearchResults(nearbyFaaResults, query, userCoordinates));
+            return;
+          }
         }
 
         const results = geoJson?.results ?? [];
@@ -597,6 +707,18 @@ export default function App() {
   }, [debouncedQuery, userCoordinates]);
 
   const createLocationFromResult = (result: SearchResult, preferredAirportCode?: string | null) => {
+    // Coordinate input: set placeholder airport and let the resolution effect find the nearest station
+    if (result.type === "coordinates") {
+      return {
+        id: String(result.place_id),
+        name: result.display_name,
+        lat: parseFloat(result.lat),
+        lon: parseFloat(result.lon),
+        airport: "ARPT",
+        airportLookupPending: true,
+      };
+    }
+
     const resolvedAirportCode = bestAirportCodeFromResult(result);
     const preferred = airportCodeFromUserSearch(preferredAirportCode, result);
     // Accept both ICAO (4 letters) and FAA identifiers (alphanumeric, e.g. WA77)
