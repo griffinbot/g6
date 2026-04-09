@@ -72,7 +72,8 @@ function toUpstreamUrlFromProxy(proxyUrl: string): string | null {
   if (proxyUrl.startsWith("/api/aviationweather")) {
     const parsed = new URL(proxyUrl, "https://proxy.local");
     const type = (parsed.searchParams.get("type") || "taf").toLowerCase();
-    if (type !== "taf" && type !== "metar") return null;
+    const validTypes = ["taf", "metar", "stationinfo", "sigmet", "gairmet"];
+    if (!validTypes.includes(type)) return null;
     parsed.searchParams.delete("type");
     const query = parsed.searchParams.toString();
     return `https://www.aviationweather.gov/api/data/${type}${query ? `?${query}` : ""}`;
