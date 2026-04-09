@@ -699,9 +699,21 @@ export default function App() {
             `/api/aviationweather?type=stationinfo&bbox=${encodeURIComponent(bbox)}&format=json`,
             2000,
           ).catch(() => null);
-          const nearbyFaaResults = (nearbyStations ?? []).filter((s) => s.country === "US").map(faaStationToSearchResult);
-          if (nearbyFaaResults.length > 0 && !cancelled) {
-            setSearchResults(prioritizeSearchResults(nearbyFaaResults, query, userCoordinates));
+          const nearbyStationsUs = (nearbyStations ?? []).filter((s) => s.country === "US");
+          if (nearbyStationsUs.length > 0 && !cancelled) {
+            // Enrich the original aerodrome result with the nearest station's code
+            // so the display name ("Enumclaw Airport") is preserved with the code badge
+            const nearest = nearbyStationsUs[0];
+            const resolvedCode = nearest.icaoId || nearest.faa || nearest.iataId;
+            const enriched: SearchResult = {
+              ...r,
+              extratags: {
+                ...r.extratags,
+                ...(nearest.icaoId ? { icao: nearest.icaoId } : {}),
+                ref: resolvedCode || r.extratags?.ref,
+              },
+            };
+            setSearchResults(prioritizeSearchResults([enriched], query, userCoordinates));
             return;
           }
         }
