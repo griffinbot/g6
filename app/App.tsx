@@ -774,7 +774,11 @@ export default function App() {
     // Accept both ICAO (4 letters) and FAA identifiers (alphanumeric, e.g. WA77)
     const normalizedPreferred = preferred ? normalizeFaaCode(preferred) : null;
     const airportCode = normalizedPreferred || resolvedAirportCode;
-    if (!airportCode) return null;
+
+    // Airport/aerodrome results with no code yet: save with pending lookup so the
+    // nearest-station effect resolves it from coordinates
+    const isAerodromeResult = result.class === "aeroway" || result.type === "aerodrome";
+    if (!airportCode && !isAerodromeResult) return null;
 
     let locationName = result.display_name.split(',')[0];
     const address = result.address;
@@ -797,8 +801,8 @@ export default function App() {
       name: locationName,
       lat: parseFloat(result.lat),
       lon: parseFloat(result.lon),
-      airport: airportCode,
-      airportLookupPending: false,
+      airport: airportCode ?? "ARPT",
+      airportLookupPending: !airportCode,
     };
   };
 
@@ -1226,7 +1230,7 @@ export default function App() {
                               ) : (
                                 <button
                                   onClick={(e) => handleSaveLocation(result, e)}
-                                  className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 text-slate-400 hover:bg-sky-400/20 hover:text-sky-300 transition-colors opacity-0 group-hover:opacity-100"
+                                  className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 text-slate-400 hover:bg-sky-400/20 hover:text-sky-300 transition-colors"
                                 >
                                   <Bookmark className="w-3.5 h-3.5" />
                                   <span className="text-[10px] font-semibold">Save</span>
