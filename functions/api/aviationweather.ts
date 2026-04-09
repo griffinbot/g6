@@ -19,8 +19,8 @@ export async function onRequestGet(context: EventContext): Promise<Response> {
   try {
     const incomingUrl = new URL(request.url);
     const type = (incomingUrl.searchParams.get("type") || "taf").toLowerCase();
-    if (type !== "taf" && type !== "metar") {
-      throw new HttpError(400, "Invalid aviationweather type. Expected 'taf' or 'metar'.");
+    if (type !== "taf" && type !== "metar" && type !== "stationinfo") {
+      throw new HttpError(400, "Invalid aviationweather type. Expected 'taf', 'metar', or 'stationinfo'.");
     }
 
     const upstreamParams = new URLSearchParams(incomingUrl.searchParams);
