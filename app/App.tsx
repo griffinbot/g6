@@ -666,10 +666,19 @@ export default function App() {
           }
         }
 
+        // Fall back to generic location results from Nominatim or the proxy
+        const allGenericResults = dedupeByPlaceId([...usDirectResults, ...usProxyResults]);
+        if (allGenericResults.length > 0) {
+          if (!cancelled) {
+            setSearchResults(prioritizeSearchResults(allGenericResults, query, userCoordinates));
+          }
+          return;
+        }
+
+        // Last resort: Open-Meteo geocoding results
         const results = geoJson?.results ?? [];
         const mapped: SearchResult[] = results
           .filter((r) => (r.country_code ?? "").toUpperCase() === "US")
-          .filter(() => looksLikeAirportCode)
           .map((r) => ({
             place_id: r.id,
             lat: String(r.latitude),
@@ -682,10 +691,11 @@ export default function App() {
               state: r.admin1,
               country_code: r.country_code?.toLowerCase(),
             },
-            extratags:
-              normalizedCodeQuery.length === 4
+            extratags: looksLikeAirportCode
+              ? normalizedCodeQuery.length === 4
                 ? { icao: normalizedCodeQuery }
-                : { iata: normalizedCodeQuery, icao: `K${normalizedCodeQuery}` },
+                : { iata: normalizedCodeQuery, icao: `K${normalizedCodeQuery}` }
+              : {},
           }));
 
         if (!cancelled) {
