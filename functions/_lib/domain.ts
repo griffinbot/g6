@@ -500,7 +500,9 @@ export async function fetchSearchResults(context: ContextLike, query: string): P
       : Promise.resolve([]),
   ]);
 
-  const faaResults = (faaStations ?? []).filter((s) => s.country === "US").map(faaStationToSearchResult);
+  const faaResults = Array.isArray(faaStations)
+    ? faaStations.filter((s) => s.country === "US").map(faaStationToSearchResult)
+    : [];
   let results = prioritizeSearchResults(
     dedupeByPlaceId([...faaResults, ...nominatim.filter(isUSResult)]),
     trimmed,
