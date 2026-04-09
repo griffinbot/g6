@@ -102,6 +102,17 @@ interface FaaStation {
   elev?: number;
 }
 
+interface AviationApiAirport {
+  icao: string;
+  name: string;
+  city: string;
+  state: string;
+  country: string;
+  lat: number;
+  lng: number;
+  elevation?: number;
+}
+
 async function safeParseJson<T>(res: Response): Promise<T | null> {
   try {
     return (await res.json()) as T;
@@ -580,6 +591,7 @@ export default function App() {
         const normalizedCodeQuery = query.toUpperCase().replace(/[^A-Z0-9]/g, "");
         const looksLikeAirportCode = /^[A-Z0-9]{3,4}$/.test(normalizedCodeQuery);
         const looksLikeFaaId = /^[A-Z0-9]{2,6}$/.test(normalizedCodeQuery) && /[A-Z]/.test(normalizedCodeQuery);
+        const looksLikeWaLocalId = /^WA\d/.test(normalizedCodeQuery);
         const proxyParams = new URLSearchParams({
           q: query,
           limit: "8",
@@ -618,6 +630,34 @@ export default function App() {
             setSearchResults(prioritizeSearchResults(combinedAirportResults, query, userCoordinates));
           }
           return;
+        }
+
+        // For Washington local identifiers (WA##), fall back to full FAA airport database
+        // which includes private strips not in the weather station index
+        if (looksLikeWaLocalId && faaResults.length === 0) {
+          const aviationApiData = await fetchJsonWithTimeout<Record<string, AviationApiAirport[]>>(
+            `/api/airport/lookup?id=${encodeURIComponent(normalizedCodeQuery)}`,
+            2500,
+          ).catch(() => null);
+          const aptList: AviationApiAirport[] = aviationApiData
+            ? Object.values(aviationApiData).flat()
+            : [];
+          const waAptResults: SearchResult[] = aptList
+            .filter((a) => a.country === "US" && a.state === "Washington")
+            .map((a) => ({
+              place_id: `apt-${a.icao}`,
+              lat: String(a.lat),
+              lon: String(a.lng),
+              display_name: [a.name, a.city, "WA"].filter(Boolean).join(", "),
+              type: "aerodrome",
+              class: "aeroway",
+              address: { state: "Washington", country_code: "us" },
+              extratags: { ref: a.icao },
+            }));
+          if (waAptResults.length > 0 && !cancelled) {
+            setSearchResults(prioritizeSearchResults(waAptResults, query, userCoordinates));
+            return;
+          }
         }
 
         const geoUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
