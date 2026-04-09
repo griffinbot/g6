@@ -148,6 +148,77 @@ function StatusBadge({ status }: { status: Status }) {
   );
 }
 
+function SummaryPanel({
+  title,
+  icon: Icon,
+  status,
+  value,
+  detail,
+  footerLabel,
+  footerValue,
+  isActive,
+  onClick,
+}: {
+  title: string;
+  icon: React.ElementType;
+  status: Status;
+  value: React.ReactNode;
+  detail: React.ReactNode;
+  footerLabel: string;
+  footerValue: React.ReactNode;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  const tone = statusStyles(status, isActive);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group rounded-2xl border bg-[#10263d] px-3.5 py-3 text-left transition-all duration-150 hover:border-white/20 hover:bg-[#132e49] hover:shadow-lg hover:shadow-slate-950/20 ${
+        isActive ? `${tone.border} ring-1 ${tone.ring}` : "border-white/10"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+            <Icon className="h-3.5 w-3.5 text-slate-500" />
+            {title}
+          </div>
+          <div className="mt-3 text-[1.9rem] font-semibold leading-none text-white">{value}</div>
+          <div className="mt-1 text-sm text-slate-300">{detail}</div>
+        </div>
+        <StatusBadge status={status} />
+      </div>
+      <div className="mt-3 flex items-center justify-between border-t border-white/8 pt-2 text-xs">
+        <span className="text-slate-500">{footerLabel}</span>
+        <span className="flex items-center gap-1 font-semibold text-slate-200">
+          {footerValue}
+          <ChevronRight className="h-3 w-3 text-slate-600 transition-colors group-hover:text-slate-400" />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function MetricPill({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: React.ReactNode;
+  detail?: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-[7.5rem] rounded-full border border-white/8 bg-white/5 px-3.5 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-slate-100">{value}</div>
+      {detail ? <div className="text-[11px] text-slate-400">{detail}</div> : null}
+    </div>
+  );
+}
+
 function SkyEmoji({ code, cloudCover }: { code: number; cloudCover: number }) {
   const iconType = getWeatherIcon(code);
   if (iconType === "thunderstorm") return <span>⛈</span>;
@@ -688,236 +759,223 @@ export function CurrentWeather({ location }: CurrentWeatherProps) {
     verdict: { title: "Go / No-Go Breakdown", icon: VerdictIcon },
   };
 
+  const windOverall = overallStatus([wStat, gStat]);
+  const lastUpdatedLabel = lastUpdated
+    ? lastUpdated.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    : null;
+  const verdictSummary =
+    pStat === "nogo"
+      ? "Precipitation is present, which is a stop condition."
+      : windOverall === "nogo"
+      ? "Surface wind is beyond your launch threshold."
+      : vStat === "nogo"
+      ? "Visibility is below your minimum."
+      : fStat === "nogo"
+      ? "Ceiling or flight category is below VFR."
+      : dStat === "nogo"
+      ? "Fog risk is too high with a narrow temperature spread."
+      : windOverall === "marginal"
+      ? "Surface wind is near your launch threshold."
+      : vStat === "marginal"
+      ? "Visibility is trending toward minimums."
+      : fStat === "marginal"
+      ? "Cloud and ceiling conditions are marginal."
+      : dStat === "marginal"
+      ? "Fog risk is elevated and worth monitoring."
+      : nextHourPrecipProb >= 30
+      ? "Core signals are solid, but keep an eye on the next-hour precip chance."
+      : "Core launch signals are inside your preferred envelope.";
+
   return (
     <>
-      <div className="flex flex-col gap-2 h-full">
-        {/* Station Header */}
-        <div className="bg-[#0f2237] rounded-2xl shadow-sm border border-white/10 overflow-hidden flex-shrink-0">
-          <div className="px-4 py-2.5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-semibold leading-tight text-white">{location.name}</h2>
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${flightCat.bgColor} ${flightCat.color}`}>
+      <div className="flex h-full flex-col gap-3">
+        <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_32%),linear-gradient(180deg,#0f2237_0%,#0b1a2b_100%)] shadow-lg shadow-slate-950/20">
+          <div className="p-4 sm:p-5">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-sky-400/20 bg-sky-400/8 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-sky-300/80">
+                    Launch Surface
+                  </span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${flightCat.bgColor} ${flightCat.color}`}>
                     {flightCat.category}
                   </span>
+                  {lastUpdatedLabel ? (
+                    <span className="flex items-center gap-1 rounded-full border border-white/8 bg-white/5 px-2.5 py-1 text-[10px] font-medium text-slate-300">
+                      <Clock className="h-3 w-3 text-slate-400" />
+                      Updated {lastUpdatedLabel}
+                    </span>
+                  ) : null}
                 </div>
-                <p className="text-sky-400 text-sm font-mono font-bold tracking-wide">{location.airport}</p>
-                {todaySunrise && todaySunset && (
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex items-center gap-1">
-                      <Sunrise className="w-4 h-4 text-orange-400" />
-                      <span className="text-xs text-orange-300 font-semibold">{formatSunTime(todaySunrise)}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Sunset className="w-4 h-4 text-indigo-400" />
-                      <span className="text-xs text-indigo-300 font-semibold">{formatSunTime(todaySunset)}</span>
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center gap-1 text-sm text-slate-400">
-                  <WeatherIcon iconType={current.icon} className="w-4 h-4" />
-                  <span>{current.condition}</span>
+
+                <div className="flex flex-wrap items-end gap-3">
+                  <h2 className="text-2xl font-semibold leading-tight text-white sm:text-3xl">{location.name}</h2>
+                  <span className="rounded-full bg-sky-400/12 px-2.5 py-1 text-xs font-mono font-bold tracking-[0.24em] text-sky-300">
+                    {location.airport}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 text-sm text-slate-300">
+                  <span className="flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1">
+                    <WeatherIcon iconType={current.icon} className="h-4 w-4" />
+                    {current.condition}
+                  </span>
+                  {todaySunrise ? (
+                    <span className="flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-300">
+                      <Sunrise className="h-3.5 w-3.5 text-orange-400" />
+                      {formatSunTime(todaySunrise)}
+                    </span>
+                  ) : null}
+                  {todaySunset ? (
+                    <span className="flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-xs text-slate-300">
+                      <Sunset className="h-3.5 w-3.5 text-indigo-400" />
+                      {formatSunTime(todaySunset)}
+                    </span>
+                  ) : null}
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <WeatherIcon iconType={current.icon} className="w-8 h-8 sm:w-9 sm:h-9" />
+
+              <div className="flex items-center gap-3 self-start rounded-2xl border border-white/8 bg-white/5 px-4 py-3 lg:self-end">
+                <WeatherIcon iconType={current.icon} className="h-9 w-9 sm:h-10 sm:w-10" />
                 <div className="text-right">
-                  <div className="text-3xl sm:text-4xl font-light leading-none text-white">{current.temperature}°</div>
-                  <div className="text-slate-400 text-xs">Feels {current.feelsLike}°</div>
+                  <div className="text-4xl font-light leading-none text-white sm:text-5xl">{current.temperature}°</div>
+                  <div className="mt-1 text-xs text-slate-400">Feels {current.feelsLike}°</div>
                 </div>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => togglePanel("verdict")}
+              className={`${verdictBg} ${verdictText} mt-5 flex w-full flex-col gap-3 rounded-2xl px-4 py-4 text-left transition-all hover:brightness-105 active:brightness-95 sm:flex-row sm:items-center sm:justify-between`}
+            >
+              <div className="flex items-start gap-3">
+                <div className="rounded-full bg-black/10 p-2">
+                  <VerdictIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] opacity-80">Go / No-Go Verdict</div>
+                  <div className="mt-1 text-lg font-bold sm:text-xl">Balloon Launch {verdictLabel}</div>
+                  <div className="mt-1 text-sm opacity-85">{verdictSummary}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-end text-sm font-semibold sm:self-auto">
+                Open breakdown
+                <ChevronRight className="h-4 w-4" />
+              </div>
+            </button>
           </div>
-
-          {/* Go/No-Go Verdict Bar — clickable */}
-          <button
-            type="button"
-            onClick={() => togglePanel("verdict")}
-            className={`${verdictBg} ${verdictText} w-full px-5 py-2.5 flex items-center justify-between transition-all hover:brightness-110 active:brightness-90 cursor-pointer group`}
-          >
-            <div className="flex items-center gap-2">
-              <VerdictIcon className="w-5 h-5" />
-              <span className="text-base font-bold tracking-wide">Balloon Flight</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-black tracking-wider">{verdictLabel}</span>
-              <ChevronRight className="w-4 h-4 opacity-70 group-hover:translate-x-0.5 transition-transform" />
-            </div>
-          </button>
         </div>
 
-        {/* 4 Primary Decision Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 flex-1 min-h-0">
-          {/* WIND */}
-          {(() => {
-            const windOverall = overallStatus([wStat, gStat]);
-            const ws = statusStyles(windOverall, activePanel === "wind");
-            return (
-              <button
-                type="button"
-                onClick={() => togglePanel("wind")}
-                className={`${ws.bg} ${ws.border} border rounded-xl p-3 sm:p-4 text-left transition-all flex flex-col justify-between cursor-pointer hover:brightness-110 hover:shadow-lg hover:ring-1 active:scale-[0.97] ${ws.ring} group`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <Wind className="w-4 h-4 text-slate-400" />
-                      <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Wind</span>
-                    </div>
-                    <StatusBadge status={windOverall} />
-                  </div>
-                  <div className="text-3xl sm:text-4xl font-bold leading-none mb-1 text-white">{current.windSpeed} <span className="text-sm font-medium text-slate-400">kt</span></div>
-                  <div className="text-sm text-slate-400">{getWindDirectionName(current.windDirection)} ({current.windDirection}°)</div>
-                </div>
-                <div className="mt-2 pt-2 border-t border-white/10">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-500">Gusts</span>
-                    <div className="flex items-center gap-1">
-                      <span className={`text-base font-bold ${gStat === "nogo" ? "text-red-400" : gStat === "marginal" ? "text-amber-400" : "text-slate-200"}`}>{current.windGusts} kt</span>
-                      <ChevronRight className="w-3 h-3 text-slate-600 group-hover:text-slate-400 transition-colors" />
-                    </div>
-                  </div>
-                </div>
-              </button>
-            );
-          })()}
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryPanel
+            title="Wind"
+            icon={Wind}
+            status={windOverall}
+            value={
+              <>
+                {current.windSpeed}
+                <span className="ml-1 text-sm font-medium text-slate-400">kt</span>
+              </>
+            }
+            detail={`${getWindDirectionName(current.windDirection)} (${current.windDirection}°)`}
+            footerLabel="Gusts"
+            footerValue={
+              <span className={gStat === "nogo" ? "text-red-400" : gStat === "marginal" ? "text-amber-400" : "text-slate-200"}>
+                {current.windGusts} kt
+              </span>
+            }
+            isActive={activePanel === "wind"}
+            onClick={() => togglePanel("wind")}
+          />
 
-          {/* CLOUDS & CEILING */}
-          {(() => {
-            const ss = statusStyles(fStat, activePanel === "clouds");
-            return (
-              <button
-                type="button"
-                onClick={() => togglePanel("clouds")}
-                className={`${ss.bg} ${ss.border} border rounded-xl p-3 sm:p-4 flex flex-col justify-between cursor-pointer hover:brightness-110 hover:shadow-lg hover:ring-1 active:scale-[0.97] ${ss.ring} group transition-all`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <Cloud className="w-4 h-4 text-slate-400" />
-                      <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Clouds</span>
-                    </div>
-                    <StatusBadge status={fStat} />
-                  </div>
-                  <div className="text-3xl sm:text-4xl font-bold leading-none mb-1 text-white">{current.cloudCover}<span className="text-sm font-medium text-slate-400">%</span> <span className="text-lg font-semibold text-slate-300">{getCloudCoverLabel(current.cloudCover)}</span></div>
-                  <div className={`text-sm ${cloudBase.altFt && cloudBase.altFt <= 2000 ? "text-red-400 font-semibold" : cloudBase.altFt && cloudBase.altFt <= 3000 ? "text-amber-400 font-medium" : "text-slate-400"}`}>
-                    Ceiling {cloudBase.text} AGL
-                  </div>
-                </div>
-                <div className="mt-2 pt-2 border-t border-white/10">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-500">Visibility</span>
-                    <div className="flex items-center gap-1">
-                      <span className={`text-base font-bold ${vStat === "nogo" ? "text-red-400" : vStat === "marginal" ? "text-amber-400" : "text-slate-200"}`}>{current.visibility} mi</span>
-                      <ChevronRight className="w-3 h-3 text-slate-600 group-hover:text-slate-400 transition-colors" />
-                    </div>
-                  </div>
-                </div>
-              </button>
-            );
-          })()}
+          <SummaryPanel
+            title="Ceiling"
+            icon={Cloud}
+            status={fStat}
+            value={
+              <>
+                {current.cloudCover}
+                <span className="ml-1 text-sm font-medium text-slate-400">%</span>
+              </>
+            }
+            detail={
+              <>
+                {getCloudCoverLabel(current.cloudCover)} · {cloudBase.text}
+              </>
+            }
+            footerLabel="Visibility"
+            footerValue={
+              <span className={vStat === "nogo" ? "text-red-400" : vStat === "marginal" ? "text-amber-400" : "text-slate-200"}>
+                {current.visibility} mi
+              </span>
+            }
+            isActive={activePanel === "clouds"}
+            onClick={() => togglePanel("clouds")}
+          />
 
-          {/* PRECIPITATION */}
-          {(() => {
-            const ss = statusStyles(pStat, activePanel === "precip");
-            return (
-              <button
-                type="button"
-                onClick={() => togglePanel("precip")}
-                className={`${ss.bg} ${ss.border} border rounded-xl p-3 sm:p-4 flex flex-col justify-between cursor-pointer hover:brightness-110 hover:shadow-lg hover:ring-1 active:scale-[0.97] ${ss.ring} group transition-all`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <CloudRain className="w-4 h-4 text-slate-400" />
-                      <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Precip</span>
-                    </div>
-                    <StatusBadge status={pStat} />
-                  </div>
-                  <div className="text-3xl sm:text-4xl font-bold leading-none mb-1 text-white">
-                    {current.precipitation > 0 ? `${current.precipitation}"` : "None"}
-                  </div>
-                  <div className="text-sm text-slate-400">{current.condition}</div>
-                </div>
-                <div className="mt-2 pt-2 border-t border-white/10">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-500">Next hour</span>
-                    <div className="flex items-center gap-1">
-                      <span className={`text-base font-bold ${nextHourPrecipProb >= 50 ? "text-red-400" : nextHourPrecipProb >= 30 ? "text-amber-400" : "text-slate-200"}`}>{nextHourPrecipProb}%</span>
-                      <ChevronRight className="w-3 h-3 text-slate-600 group-hover:text-slate-400 transition-colors" />
-                    </div>
-                  </div>
-                </div>
-              </button>
-            );
-          })()}
+          <SummaryPanel
+            title="Precip"
+            icon={CloudRain}
+            status={pStat}
+            value={current.precipitation > 0 ? `${current.precipitation}"` : "None"}
+            detail={current.condition}
+            footerLabel="Next hour"
+            footerValue={
+              <span className={nextHourPrecipProb >= 50 ? "text-red-400" : nextHourPrecipProb >= 30 ? "text-amber-400" : "text-slate-200"}>
+                {nextHourPrecipProb}%
+              </span>
+            }
+            isActive={activePanel === "precip"}
+            onClick={() => togglePanel("precip")}
+          />
 
-          {/* DEW POINT & FOG RISK */}
-          {(() => {
-            const ss = statusStyles(dStat, activePanel === "dewpoint");
-            return (
-              <button
-                type="button"
-                onClick={() => togglePanel("dewpoint")}
-                className={`${ss.bg} ${ss.border} border rounded-xl p-3 sm:p-4 flex flex-col justify-between cursor-pointer hover:brightness-110 hover:shadow-lg hover:ring-1 active:scale-[0.97] ${ss.ring} group transition-all`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <Thermometer className="w-4 h-4 text-slate-400" />
-                      <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Dew Point</span>
-                    </div>
-                    <StatusBadge status={dStat} />
-                  </div>
-                  <div className="text-3xl sm:text-4xl font-bold leading-none mb-1 text-white">{current.dewPoint}<span className="text-sm font-medium text-slate-400">°F</span></div>
-                  <div className={`text-sm ${tempDewSpread <= 3 ? "text-red-400 font-semibold" : tempDewSpread <= 5 ? "text-amber-400 font-medium" : "text-slate-400"}`}>
-                    T/Td Spread: {tempDewSpread}°
-                    {tempDewSpread <= 3 && " — FOG RISK"}
-                  </div>
-                </div>
-                <div className="mt-2 pt-2 border-t border-white/10">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-500">Humidity</span>
-                    <div className="flex items-center gap-1">
-                      <span className="text-base font-bold text-slate-200">{current.humidity}%</span>
-                      <ChevronRight className="w-3 h-3 text-slate-600 group-hover:text-slate-400 transition-colors" />
-                    </div>
-                  </div>
-                </div>
-              </button>
-            );
-          })()}
+          <SummaryPanel
+            title="Dew Point"
+            icon={Thermometer}
+            status={dStat}
+            value={
+              <>
+                {current.dewPoint}
+                <span className="ml-1 text-sm font-medium text-slate-400">°F</span>
+              </>
+            }
+            detail={`Spread ${tempDewSpread}°`}
+            footerLabel="Humidity"
+            footerValue={<span>{current.humidity}%</span>}
+            isActive={activePanel === "dewpoint"}
+            onClick={() => togglePanel("dewpoint")}
+          />
         </div>
 
-        {/* Supporting Metrics Row */}
-        <div className="grid grid-cols-4 gap-2 flex-shrink-0">
-          {[
-            { label: "Pressure", value: current.pressure, unit: "inHg", color: "text-slate-100" },
-            { label: "Density Alt", value: densityAlt.toLocaleString(), unit: "ft", color: densityAlt > 7000 ? "text-red-400" : densityAlt > 5000 ? "text-amber-400" : "text-slate-100" },
-            { label: "Humidity", value: `${current.humidity}%`, unit: "RH", color: "text-slate-100" },
-            { label: "Visibility", value: `${current.visibility} mi`, unit: current.visibility >= 10 ? "Clear" : current.visibility >= 5 ? "Moderate" : "Low", color: vStat === "nogo" ? "text-red-400" : vStat === "marginal" ? "text-amber-400" : "text-slate-100" },
-          ].map((m) => (
-            <div key={m.label} className="bg-[#0f2237] rounded-lg border border-white/10 py-2.5 px-2 text-center">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wide">{m.label}</div>
-              <div className={`text-base font-bold ${m.color}`}>{m.value}</div>
-              <div className="text-[9px] text-slate-500">{m.unit}</div>
-            </div>
-          ))}
+        <div className="flex flex-wrap gap-2">
+          <MetricPill label="Pressure" value={`${current.pressure} inHg`} />
+          <MetricPill
+            label="Density Alt"
+            value={<span className={densityAlt > 7000 ? "text-red-400" : densityAlt > 5000 ? "text-amber-400" : "text-slate-100"}>{densityAlt.toLocaleString()} ft</span>}
+          />
+          <MetricPill label="Humidity" value={`${current.humidity}%`} />
+          <MetricPill
+            label="Visibility"
+            value={<span className={vStat === "nogo" ? "text-red-400" : vStat === "marginal" ? "text-amber-400" : "text-slate-100"}>{current.visibility} mi</span>}
+            detail={current.visibility >= 10 ? "Clear" : current.visibility >= 5 ? "Moderate" : "Low"}
+          />
         </div>
 
-        {/* 6-Hour Outlook Strip */}
         {next6.length > 0 && (
-          <div className="bg-[#0f2237] rounded-xl border border-white/10 overflow-hidden flex-shrink-0">
-            <div className="px-3 py-1.5 border-b border-white/10 flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Next 6 Hours</span>
+          <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f2237] flex-shrink-0">
+            <div className="flex items-center justify-between border-b border-white/10 px-3 py-2.5">
+              <div>
+                <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Next 6 Hours</span>
+                <p className="mt-0.5 text-xs text-slate-500">Short-range wind and precip watch</p>
+              </div>
               <button
                 onClick={() => setShowHourly(!showHourly)}
-                className="flex items-center gap-1 text-xs text-sky-400 font-medium hover:text-sky-300 transition-colors"
+                className="flex items-center gap-1 text-xs font-medium text-sky-400 transition-colors hover:text-sky-300"
               >
-                <Clock className="w-3.5 h-3.5" />
+                <Clock className="h-3.5 w-3.5" />
                 {showHourly ? "Hide" : "Full"} Hourly
-                {showHourly ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                {showHourly ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               </button>
             </div>
             <div className="grid grid-cols-6 divide-x divide-white/10">
@@ -930,19 +988,20 @@ export function CurrentWeather({ location }: CurrentWeatherProps) {
                 return (
                   <button
                     key={i}
-                    className="py-2.5 px-1 text-center hover:bg-white/5 transition-colors cursor-pointer"
+                    className="cursor-pointer px-1 py-3 text-center transition-colors hover:bg-white/5"
                     title={`${hr12}${ampm}: ${h.windSpeed}kt wind, ${h.precipitationProbability}% precip`}
                   >
-                    <div className="text-xs text-slate-500 font-medium">{hr12}{ampm}</div>
-                    <div className="text-lg my-0.5">
+                    <div className="text-xs font-medium text-slate-500">{hr12}{ampm}</div>
+                    <div className="my-1 text-lg">
                       <SkyEmoji code={h.weatherCode} cloudCover={h.cloudCover} />
                     </div>
-                    <div className={`text-sm font-bold ${windColor}`}>{h.windSpeed}<span className="text-[10px] font-normal">kt</span></div>
-                    {h.precipitationProbability > 0 && (
-                      <div className={`text-xs font-semibold mt-0.5 ${h.precipitationProbability >= 50 ? "text-blue-400" : "text-blue-300"}`}>
-                        {h.precipitationProbability}%
-                      </div>
-                    )}
+                    <div className={`text-sm font-bold ${windColor}`}>
+                      {h.windSpeed}
+                      <span className="text-[10px] font-normal">kt</span>
+                    </div>
+                    <div className={`mt-1 text-[10px] font-semibold ${h.precipitationProbability >= 50 ? "text-red-400" : h.precipitationProbability >= 30 ? "text-amber-400" : "text-slate-500"}`}>
+                      {h.precipitationProbability > 0 ? `${h.precipitationProbability}% precip` : "Dry"}
+                    </div>
                   </button>
                 );
               })}

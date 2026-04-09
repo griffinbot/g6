@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { MapPin, Upload, Layers, X, ChevronDown, ChevronUp, Eye, EyeOff, AlertCircle } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "./ui/sheet";
 
 function isValidCoord(lat: number, lng: number): boolean {
   return isFinite(lat) && isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
@@ -270,6 +271,7 @@ export function MapView({ location }: { location: { name: string; lat: number; l
   const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [loadingFile, setLoadingFile] = useState(false);
+  const [isMobileToolsOpen, setIsMobileToolsOpen] = useState(false);
 
   const [overlayPanelOpen, setOverlayPanelOpen] = useState(true);
   const [airspaceEnabled, setAirspaceEnabled] = useState(false);
@@ -717,8 +719,173 @@ export function MapView({ location }: { location: { name: string; lat: number; l
     };
   }, []);
 
+  const toolsPanel = (
+    <div className="space-y-3">
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        disabled={loadingFile}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#081828]/92 px-4 py-3 text-sm font-semibold text-slate-100 shadow-lg shadow-slate-950/20 backdrop-blur-sm transition-all hover:border-sky-400/25 hover:text-sky-300 disabled:cursor-not-allowed disabled:opacity-70"
+      >
+        {loadingFile ? (
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
+        ) : (
+          <Upload className="h-4 w-4" />
+        )}
+        Upload KML
+      </button>
+
+      <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#081828]/92 shadow-lg shadow-slate-950/20 backdrop-blur-sm">
+        <button
+          onClick={() => setOverlayPanelOpen((v) => !v)}
+          className="flex w-full items-center justify-between px-3.5 py-3 text-sm font-semibold text-slate-100 transition-colors hover:bg-white/5"
+        >
+          <div className="flex items-center gap-2">
+            <Layers className="h-4 w-4 text-sky-400" />
+            <span>Overlays</span>
+          </div>
+          {overlayPanelOpen ? (
+            <ChevronUp className="h-4 w-4 text-slate-400" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-slate-400" />
+          )}
+        </button>
+
+        {overlayPanelOpen && (
+          <div className="flex flex-col gap-2.5 border-t border-white/8 px-3.5 py-3">
+            <label className="flex cursor-pointer items-center gap-2 select-none">
+              <input
+                type="checkbox"
+                checked={airspaceEnabled}
+                onChange={handleAirspaceToggle}
+                disabled={airspaceLoading}
+                className="h-3.5 w-3.5 accent-sky-500"
+              />
+              <span className="flex-1 text-xs font-medium text-slate-200">Airspace</span>
+              {airspaceLoading && (
+                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
+              )}
+            </label>
+
+            {airspaceError && (
+              <div className="flex items-start gap-1 rounded-lg bg-amber-500/12 px-2 py-1.5 text-xs text-amber-200">
+                <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>{airspaceError}</span>
+              </div>
+            )}
+
+            <label className="flex cursor-pointer items-center gap-2 select-none">
+              <input
+                type="checkbox"
+                checked={enumclawEnabled}
+                onChange={handleEnumclawToggle}
+                disabled={enumclawLoading}
+                className="h-3.5 w-3.5 accent-sky-500"
+              />
+              <span className="flex-1 text-xs font-medium text-slate-200">Enumclaw KML</span>
+              {enumclawLoading && (
+                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
+              )}
+            </label>
+
+            {enumclawError && (
+              <div className="flex items-start gap-1 rounded-lg bg-red-500/12 px-2 py-1.5 text-xs text-red-200">
+                <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>{enumclawError}</span>
+              </div>
+            )}
+
+            <div className="mt-1 border-t border-white/8 pt-2">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">Airspace Legend</p>
+              <div className="flex flex-col gap-1.5">
+                {Object.entries(AIRSPACE_COLORS).map(([key, val]) => (
+                  <div key={key} className="flex items-center gap-2">
+                    <span
+                      className="inline-block h-3.5 w-3.5 rounded-sm border"
+                      style={{
+                        background: val.fillColor + "40",
+                        borderColor: val.color,
+                        borderStyle: val.dashArray ? "dashed" : "solid",
+                        borderWidth: 2,
+                      }}
+                    />
+                    <span className="text-[11px] text-slate-300">{val.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {kmlLayers.length > 0 ? (
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#081828]/92 shadow-lg shadow-slate-950/20 backdrop-blur-sm">
+          <button
+            onClick={() => setIsLayerPanelOpen(!isLayerPanelOpen)}
+            className="flex w-full items-center justify-between px-3.5 py-3 text-sm font-semibold text-slate-100 transition-colors hover:bg-white/5"
+          >
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-sky-400" />
+              <span>Imported Layers ({kmlLayers.length})</span>
+            </div>
+            {isLayerPanelOpen ? (
+              <ChevronUp className="h-4 w-4 text-slate-400" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-slate-400" />
+            )}
+          </button>
+
+          {isLayerPanelOpen && (
+            <div className="max-h-56 overflow-y-auto border-t border-white/8">
+              {kmlLayers.map((layer) => (
+                <div
+                  key={layer.id}
+                  className="flex items-center gap-2 border-b border-white/6 px-3.5 py-2.5 last:border-0"
+                >
+                  <button
+                    onClick={() => toggleLayerVisibility(layer.id)}
+                    className="text-slate-400 transition-colors hover:text-sky-400"
+                    title={layer.visible ? "Hide layer" : "Show layer"}
+                  >
+                    {layer.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    onClick={() => zoomToLayer(layer)}
+                    className={`flex-1 truncate text-left text-xs transition-colors ${
+                      layer.visible ? "text-slate-200 hover:text-sky-300" : "text-slate-500 hover:text-sky-300"
+                    }`}
+                    title={`${layer.name} (${layer.featureCount} features) — click to zoom`}
+                  >
+                    {layer.name}
+                    <span className="ml-1 text-slate-500">({layer.featureCount})</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (enumclawLayerIdRef.current === layer.id) {
+                        setEnumclawEnabled(false);
+                        enumclawLayerIdRef.current = null;
+                      }
+                      removeLayer(layer.id);
+                    }}
+                    className="text-slate-500 transition-colors hover:text-red-400"
+                    title="Remove layer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-white/8 bg-[#081828]/80 px-3.5 py-3 text-xs text-slate-400 backdrop-blur-sm">
+          Upload a KML file or enable overlays to add map context.
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className="relative h-full w-full flex flex-col" style={{ minHeight: "calc(100vh - 180px)" }}>
+    <div className="relative flex h-full min-h-[calc(100dvh-13rem)] w-full flex-col sm:min-h-[34rem] lg:min-h-0">
       <input
         ref={fileInputRef}
         type="file"
@@ -746,177 +913,36 @@ export function MapView({ location }: { location: { name: string; lat: number; l
         </div>
       )}
 
-      <div className="absolute top-3 left-3 z-[5] flex flex-col gap-2">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={loadingFile}
-          className="flex items-center gap-2 px-3.5 py-2 bg-white rounded-lg shadow-md hover:shadow-lg text-sm font-medium text-gray-700 hover:text-sky-600 transition-all border border-gray-200"
-        >
-          {loadingFile ? (
-            <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <Upload className="w-4 h-4" />
-          )}
-          Upload KML
-        </button>
-
-        <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-md border border-gray-200 overflow-hidden w-52">
-          <button
-            onClick={() => setOverlayPanelOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-3.5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-sky-500" />
-              <span>Overlays</span>
-            </div>
-            {overlayPanelOpen ? (
-              <ChevronUp className="w-4 h-4 text-gray-400" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-gray-400" />
-            )}
-          </button>
-
-          {overlayPanelOpen && (
-            <div className="border-t border-gray-100 px-3 py-2 flex flex-col gap-2">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={airspaceEnabled}
-                  onChange={handleAirspaceToggle}
-                  disabled={airspaceLoading}
-                  className="w-3.5 h-3.5 accent-sky-500"
-                />
-                <span className="text-xs font-medium text-gray-700 flex-1">Airspace</span>
-                {airspaceLoading && (
-                  <div className="w-3.5 h-3.5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                )}
-              </label>
-
-              {airspaceError && (
-                <div className="flex items-start gap-1 text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">
-                  <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
-                  <span>{airspaceError}</span>
-                </div>
-              )}
-
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={enumclawEnabled}
-                  onChange={handleEnumclawToggle}
-                  disabled={enumclawLoading}
-                  className="w-3.5 h-3.5 accent-sky-500"
-                />
-                <span className="text-xs font-medium text-gray-700 flex-1">Enumclaw KML</span>
-                {enumclawLoading && (
-                  <div className="w-3.5 h-3.5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                )}
-              </label>
-
-              {enumclawError && (
-                <div className="flex items-start gap-1 text-xs text-red-700 bg-red-50 rounded px-2 py-1">
-                  <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
-                  <span>{enumclawError}</span>
-                </div>
-              )}
-
-              <div className="mt-1 pt-1.5 border-t border-gray-100">
-                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Airspace Legend</p>
-                <div className="flex flex-col gap-1">
-                  {Object.entries(AIRSPACE_COLORS).map(([key, val]) => (
-                    <div key={key} className="flex items-center gap-1.5">
-                      <span
-                        className="inline-block w-3.5 h-3.5 rounded-sm border"
-                        style={{
-                          background: val.fillColor + "40",
-                          borderColor: val.color,
-                          borderStyle: val.dashArray ? "dashed" : "solid",
-                          borderWidth: 2,
-                        }}
-                      />
-                      <span className="text-[10px] text-gray-600">{val.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+      <div className="absolute left-3 top-3 z-[5] hidden w-72 max-h-[calc(100%-1.5rem)] overflow-y-auto pr-1 sm:block">
+        {toolsPanel}
       </div>
 
-      {kmlLayers.length > 0 && (
-        <div className="absolute bottom-6 left-3 z-[5] w-72 max-h-80">
-          <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-            <button
-              onClick={() => setIsLayerPanelOpen(!isLayerPanelOpen)}
-              className="w-full flex items-center justify-between px-3.5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-sky-500" />
-                <span>Layers ({kmlLayers.length})</span>
-              </div>
-              {isLayerPanelOpen ? (
-                <ChevronDown className="w-4 h-4 text-gray-400" />
-              ) : (
-                <ChevronUp className="w-4 h-4 text-gray-400" />
-              )}
-            </button>
+      <div className="absolute bottom-20 left-1/2 z-[5] -translate-x-1/2 sm:hidden">
+        <button
+          onClick={() => setIsMobileToolsOpen(true)}
+          className="flex items-center gap-2 rounded-full border border-white/10 bg-[#081828]/92 px-4 py-2.5 text-sm font-semibold text-slate-100 shadow-xl shadow-slate-950/25 backdrop-blur-sm transition-all hover:border-sky-400/25 hover:text-sky-300"
+        >
+          <Layers className="h-4 w-4 text-sky-400" />
+          Map Tools
+        </button>
+      </div>
 
-            {isLayerPanelOpen && (
-              <div className="border-t border-gray-100 max-h-52 overflow-y-auto">
-                {kmlLayers.map((layer) => (
-                  <div
-                    key={layer.id}
-                    className="flex items-center gap-2 px-3.5 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0"
-                  >
-                    <button
-                      onClick={() => toggleLayerVisibility(layer.id)}
-                      className="text-gray-400 hover:text-sky-500 transition-colors"
-                      title={layer.visible ? "Hide layer" : "Show layer"}
-                    >
-                      {layer.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                    </button>
-                    <button
-                      onClick={() => zoomToLayer(layer)}
-                      className={`flex-1 text-left text-xs truncate ${
-                        layer.visible ? "text-gray-700" : "text-gray-400"
-                      } hover:text-sky-600 transition-colors`}
-                      title={`${layer.name} (${layer.featureCount} features) — click to zoom`}
-                    >
-                      {layer.name}
-                      <span className="text-gray-400 ml-1">({layer.featureCount})</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (enumclawLayerIdRef.current === layer.id) {
-                          setEnumclawEnabled(false);
-                          enumclawLayerIdRef.current = null;
-                        }
-                        removeLayer(layer.id);
-                      }}
-                      className="text-gray-300 hover:text-red-500 transition-colors"
-                      title="Remove layer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+      <Sheet open={isMobileToolsOpen} onOpenChange={setIsMobileToolsOpen}>
+        <SheetContent
+          side="bottom"
+          className="border-white/10 bg-[#081320] px-0 pt-0 pb-[calc(env(safe-area-inset-bottom)+1rem)] text-white"
+        >
+          <SheetHeader className="border-b border-white/8 px-4 py-4">
+            <SheetTitle className="text-white">Map Tools</SheetTitle>
+            <SheetDescription className="text-slate-400">
+              Manage uploads, overlay toggles, and imported layer visibility.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="max-h-[70vh] overflow-y-auto px-4 py-4 sm:hidden">
+            {toolsPanel}
           </div>
-        </div>
-      )}
-
-      {kmlLayers.length === 0 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[5]">
-          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md px-5 py-3 text-center border border-gray-200">
-            <p className="text-sm text-gray-500">
-              <MapPin className="w-4 h-4 inline-block mr-1.5 text-gray-400" />
-              Upload a KML file or drag and drop to add map overlays
-            </p>
-          </div>
-        </div>
-      )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

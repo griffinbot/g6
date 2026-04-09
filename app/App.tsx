@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, Settings, Wind, FileText, Plane, Calendar, Loader2, Bookmark, BookmarkCheck, X, Menu, ChevronLeft, ChevronRight, MessageSquare, SlidersHorizontal, Navigation, LogIn, Map } from "lucide-react";
+import { Search, Settings, Wind, FileText, Plane, Calendar, Loader2, Bookmark, BookmarkCheck, X, Menu, MessageSquare, SlidersHorizontal, Navigation, LogIn, Map } from "lucide-react";
 import { Input } from "./components/ui/input";
 import { Button } from "./components/ui/button";
-import { Tabs, TabsContent } from "./components/ui/tabs";
-import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
-import { Sheet, SheetContent, SheetClose, SheetHeader, SheetTitle } from "./components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Sheet, SheetContent, SheetClose, SheetDescription, SheetHeader, SheetTitle } from "./components/ui/sheet";
 import { CurrentWeather } from "./components/CurrentWeather";
 import { WindDataTable } from "./components/WindDataTable";
 import { WeatherDiscussion } from "./components/WeatherDiscussion";
@@ -15,7 +14,6 @@ import { SevenDayOutlook } from "./components/SevenDayOutlook";
 import { AviationForecastInfographic } from "./components/AviationForecastInfographic";
 import { AIAssistantPanel } from "./components/AIAssistantPanel";
 import { SavedLocationWidget } from "./components/SavedLocationWidget";
-import { Footer } from "./components/Footer";
 import { MapView } from "./components/MapView";
 import { cachedFetch, weatherGovFetch } from "./services/weatherProxy";
 import { WeatherProvider } from "./contexts/WeatherContext";
@@ -29,16 +27,20 @@ const initialLocations = [
 ];
 
 const navTabs = [
-  { value: "overview", label: "Overview", mobileLabel: "Over...", icon: SlidersHorizontal },
-  { value: "discussion", label: "Discussion", mobileLabel: "Discu...", icon: FileText },
-  { value: "airports", label: "Airports", mobileLabel: "Airpo...", icon: Plane },
-  { value: "wind-aloft", label: "Wind Aloft", mobileLabel: "Winds", icon: Wind },
-  { value: "forecast", label: "Forecast", mobileLabel: "Fcast", icon: Calendar },
-  { value: "outlook", label: "7-Day", mobileLabel: "7-Day", icon: Calendar },
-  { value: "map", label: "Map", mobileLabel: "Map", icon: Map },
-  { value: "flight", label: "Flight Plan", mobileLabel: "Flight...", icon: Navigation },
-  { value: "settings", label: "Settings", mobileLabel: "Settings", icon: Settings },
+  { value: "overview", label: "Overview", icon: SlidersHorizontal },
+  { value: "discussion", label: "Discussion", icon: FileText },
+  { value: "airports", label: "Airports", icon: Plane },
+  { value: "wind-aloft", label: "Wind Aloft", icon: Wind },
+  { value: "forecast", label: "Forecast", icon: Calendar },
+  { value: "outlook", label: "7-Day", icon: Calendar },
+  { value: "map", label: "Map", icon: Map },
+  { value: "flight", label: "Flight Plan", icon: Navigation },
+  { value: "settings", label: "Settings", icon: Settings },
 ] as const;
+
+const workspaceTabs = navTabs.filter(
+  (tab) => tab.value !== "discussion" && tab.value !== "settings",
+);
 
 interface SearchResult {
   place_id: number | string;
@@ -156,6 +158,18 @@ function normalizeAirportCode(value: string | undefined | null): string | null {
   const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (!/^[A-Z0-9]{3,5}$/.test(normalized)) return null;
   return normalized;
+}
+
+// Returns false for CWOP personal weather stations (e.g. ENCW1, FW123, DW1)
+// which look like letters followed by trailing digits and are not airport identifiers.
+function isAirportStyleCode(code: string): boolean {
+  const c = code.toUpperCase();
+  // ICAO K/P codes: KSEA, KRNT — always airport
+  if (/^[KP][A-Z]{3}$/.test(c)) return true;
+  // CWOP pattern: 3–5 letters followed by 1–4 digits (ENCW1, DW12, FW1234)
+  if (/^[A-Z]{2,5}\d{1,4}$/.test(c)) return false;
+  // Everything else that passes normalizeAirportCode is treated as a valid FAA id (S61, WA77, 0S9)
+  return normalizeAirportCode(c) !== null;
 }
 
 function normalizeIcaoCode(value: string | undefined | null): string | null {
@@ -700,16 +714,20 @@ export default function App() {
             2000,
           ).catch(() => null);
           const nearbyStationsUs = (nearbyStations ?? []).filter((s) => s.country === "US");
-          if (nearbyStationsUs.length > 0 && !cancelled) {
-            // Enrich the original aerodrome result with the nearest station's code
+          // Prefer ICAO K-codes, then any airport-style code — skip CWOP weather stations
+          const airportStation = nearbyStationsUs.find((s) => {
+            const code = s.icaoId || s.faa || s.iataId || "";
+            return isAirportStyleCode(code);
+          });
+          if (airportStation && !cancelled) {
+            // Enrich the original aerodrome result with the nearest airport station's code
             // so the display name ("Enumclaw Airport") is preserved with the code badge
-            const nearest = nearbyStationsUs[0];
-            const resolvedCode = nearest.icaoId || nearest.faa || nearest.iataId;
+            const resolvedCode = airportStation.icaoId || airportStation.faa || airportStation.iataId;
             const enriched: SearchResult = {
               ...r,
               extratags: {
                 ...r.extratags,
-                ...(nearest.icaoId ? { icao: nearest.icaoId } : {}),
+                ...(airportStation.icaoId ? { icao: airportStation.icaoId } : {}),
                 ref: resolvedCode || r.extratags?.ref,
               },
             };
@@ -912,8 +930,13 @@ export default function App() {
             }>;
           }>(`/api/weather-gov/points/${location.lat.toFixed(4)},${location.lon.toFixed(4)}/stations`, 10 * 60_000);
 
+          const features: Array<{ properties?: { stationIdentifier?: string } }> =
+            stationData?.features ?? [];
+          // Prefer the nearest K/P ICAO code; skip CWOP personal weather stations
           const resolvedCode =
-            normalizeAirportCode(stationData?.features?.[0]?.properties?.stationIdentifier) ?? null;
+            features
+              .map((f) => normalizeAirportCode(f?.properties?.stationIdentifier))
+              .filter((c): c is string => c !== null && isAirportStyleCode(c))[0] ?? null;
 
           if (!cancelled) {
             setSavedLocations((prev) =>
@@ -1055,45 +1078,44 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const isMobileViewport = () => window.matchMedia("(max-width: 767px)").matches;
-    const shouldUseCompactMode = () =>
-      isMobileViewport() && (activeTab === "overview" || activeTab === "airports");
-
     const updateCompactState = () => {
-      if (!shouldUseCompactMode()) {
-        setIsMobileLocationCardsCollapsed(false);
-        return;
-      }
-      const next = window.scrollY > 110;
+      const next = window.matchMedia("(max-width: 767px)").matches;
       setIsMobileLocationCardsCollapsed((prev) => (prev === next ? prev : next));
     };
 
     updateCompactState();
-    window.addEventListener("scroll", updateCompactState, { passive: true });
     window.addEventListener("resize", updateCompactState);
     return () => {
-      window.removeEventListener("scroll", updateCompactState);
       window.removeEventListener("resize", updateCompactState);
     };
   }, [activeTab]);
 
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    setIsAIPanelOpen(false);
+    setIsDiscussionPanelOpen(false);
+  };
+
   return (
     <ProfileProvider>
-    <div className="flex min-h-screen flex-col bg-[#0c1929] pb-16 sm:pb-14 lg:h-[100dvh] lg:min-h-[100dvh] lg:overflow-hidden">
+    <div className="flex min-h-screen flex-col bg-[#081320] pb-16 sm:pb-0 lg:h-[100dvh] lg:min-h-[100dvh] lg:overflow-hidden">
       {/* Navigation Drawer */}
       <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
         <SheetContent side="left" className="w-64 p-0 flex flex-col bg-[#0c1929] border-r border-slate-700/60 [&>button]:text-slate-400 [&>button]:hover:text-white [&>button]:hover:bg-slate-700/50">
           <SheetHeader className="px-5 py-5 border-b border-slate-700/60">
             <SheetTitle className="text-sm font-semibold tracking-widest uppercase text-slate-400 letter-spacing-wider">Navigation</SheetTitle>
+            <SheetDescription className="sr-only">
+              Move between the weather workspace, reports, planning tools, and settings.
+            </SheetDescription>
           </SheetHeader>
           <nav className="flex-1 py-2 overflow-y-auto">
-            {navTabs.filter(t => t.value !== "settings").map((tab) => {
+            {workspaceTabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.value;
               return (
                 <SheetClose asChild key={tab.value}>
                   <button
-                    onClick={() => setActiveTab(tab.value)}
+                    onClick={() => handleTabChange(tab.value)}
                     className={`w-full flex items-center gap-3.5 px-5 py-3 text-sm font-medium transition-all duration-150 relative ${
                       isActive
                         ? "text-white bg-sky-500/15"
@@ -1139,7 +1161,7 @@ export default function App() {
           <div className="border-t border-slate-700/60 py-2">
             <SheetClose asChild>
               <button
-                onClick={() => setActiveTab("settings")}
+                onClick={() => handleTabChange("settings")}
                 className={`w-full flex items-center gap-3.5 px-5 py-3 text-sm font-medium transition-all duration-150 relative ${
                   activeTab === "settings"
                     ? "text-white bg-sky-500/15"
@@ -1167,39 +1189,34 @@ export default function App() {
         </SheetContent>
       </Sheet>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="flex min-h-0 flex-1 flex-col gap-0">
         {/* Top Navigation */}
-        <div className="bg-gradient-to-r from-[#0c1929] to-[#0f2645] px-3 sm:px-6 py-3 sm:py-4 relative z-50 shadow-lg shadow-slate-900/20">
-          <div>
-            <div className="flex items-center gap-2 sm:gap-3 lg:grid lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center lg:gap-3">
-              {/* Hamburger Menu Button */}
-              <Button
-                variant="ghost"
-                className="hidden sm:inline-flex h-9 sm:h-10 flex-shrink-0 w-9 sm:w-10 p-0 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-xl border border-slate-600/50 bg-slate-800/40"
-                onClick={() => setIsMenuOpen(true)}
-                aria-label="Open menu"
-              >
-                <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
-              </Button>
+        <div className="relative z-50 border-b border-white/8 bg-[linear-gradient(180deg,rgba(12,25,41,0.98),rgba(10,22,38,0.94))] px-3 py-3 shadow-lg shadow-slate-950/20 sm:px-6 sm:py-4">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="hidden lg:flex min-w-[10rem] flex-col">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.28em] text-sky-300/70">Griff Weather</span>
+                <span className="text-sm font-semibold text-white">Flight Briefing Workspace</span>
+              </div>
 
               {/* Search Bar */}
-              <div className="relative z-[100] flex-1 min-w-0 lg:w-full lg:min-w-0">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+              <div className="relative z-[100] min-w-0 flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                 <Input
                   placeholder="Search airport or city"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 h-9 sm:h-10 text-sm w-full sm:w-56 md:w-64 lg:w-full bg-slate-800/50 border-slate-600/60 text-white placeholder:text-slate-400 rounded-xl focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50 transition-all"
+                  className="h-10 w-full rounded-2xl border-slate-600/60 bg-slate-800/50 pl-9 text-sm text-white placeholder:text-slate-400 transition-all focus:border-sky-500/50 focus:ring-2 focus:ring-sky-500/30"
                 />
                 {isSearching && (
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
                     <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
                   </div>
                 )}
 
                 {/* Search Results Dropdown */}
                 {(searchResults.length > 0 || (searchQuery.length >= 3 && !isSearching && searchResults.length === 0)) && (
-                  <div className="absolute left-0 top-full mt-2 bg-[#0f2237] border border-white/10 rounded-xl shadow-2xl max-h-[22rem] overflow-y-auto z-[200] w-[min(24rem,calc(100vw-1.5rem))] sm:w-[min(24rem,calc(100vw-3rem))] lg:w-full lg:max-w-none">
+                  <div className="absolute left-0 top-full z-[200] mt-2 max-h-[22rem] overflow-y-auto rounded-2xl border border-white/10 bg-[#0f2237] shadow-2xl w-[min(24rem,calc(100vw-1.5rem))] sm:w-[min(28rem,calc(100vw-3rem))] lg:w-full lg:max-w-none">
                     {searchResults.length > 0 ? (
                       searchResults.map(result => {
                         const code = getAirportCode(result, searchQuery);
@@ -1209,18 +1226,18 @@ export default function App() {
                           <div
                             key={result.place_id}
                             onClick={() => handleSelectLocation(result)}
-                            className="w-full px-4 py-3 text-left hover:bg-white/5 flex items-start gap-3 text-sm border-b border-white/8 last:border-0 transition-colors cursor-pointer group"
+                            className="group flex cursor-pointer items-start gap-3 border-b border-white/8 px-4 py-3 text-left text-sm transition-colors last:border-0 hover:bg-white/5"
                           >
                             {isAirportLike(result) ? (
-                              <Plane className="w-4 h-4 text-sky-400 mt-0.5 flex-shrink-0" />
+                              <Plane className="mt-0.5 h-4 w-4 flex-shrink-0 text-sky-400" />
                             ) : (
-                              <Search className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                              <Search className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" />
                             )}
 
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-white truncate flex items-center gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 truncate font-medium text-white">
                                 {code && code !== "ARPT" && (
-                                  <span className="bg-sky-400/20 text-sky-300 px-1.5 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider">
+                                  <span className="rounded bg-sky-400/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-sky-300 font-mono">
                                     {code}
                                   </span>
                                 )}
@@ -1228,23 +1245,23 @@ export default function App() {
                                   {result.display_name.split(',')[0]}
                                 </span>
                               </div>
-                              <div className="text-xs text-slate-400 truncate mt-1 leading-snug">
+                              <div className="mt-1 truncate text-xs leading-snug text-slate-400">
                                 {result.display_name.split(',').slice(1).join(',')}
                               </div>
                             </div>
 
                             <div className="flex-shrink-0">
                               {isSaved ? (
-                                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-900/40 text-emerald-400">
-                                  <BookmarkCheck className="w-3.5 h-3.5" />
+                                <div className="flex items-center gap-1.5 rounded-md bg-emerald-900/40 px-2 py-1 text-emerald-400">
+                                  <BookmarkCheck className="h-3.5 w-3.5" />
                                   <span className="text-[10px] font-semibold">Saved</span>
                                 </div>
                               ) : (
                                 <button
                                   onClick={(e) => handleSaveLocation(result, e)}
-                                  className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 text-slate-400 hover:bg-sky-400/20 hover:text-sky-300 transition-colors"
+                                  className="flex items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-slate-400 transition-colors hover:bg-sky-400/20 hover:text-sky-300"
                                 >
-                                  <Bookmark className="w-3.5 h-3.5" />
+                                  <Bookmark className="h-3.5 w-3.5" />
                                   <span className="text-[10px] font-semibold">Save</span>
                                 </button>
                               )}
@@ -1261,19 +1278,84 @@ export default function App() {
                 )}
               </div>
 
-              <div className="flex items-center gap-2 lg:justify-self-end">
-                <div className="flex items-center gap-1.5 px-2.5 sm:px-3 h-9 sm:h-10 rounded-xl border border-slate-600/50 bg-slate-800/40">
-                  <Plane className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
-                  <span className="text-xs font-semibold text-white truncate max-w-[100px] sm:max-w-[140px]">
+              <div className="flex items-center gap-2">
+                <div className="flex h-10 items-center gap-1.5 rounded-2xl border border-slate-600/50 bg-slate-800/40 px-2.5 sm:px-3">
+                  <Plane className="h-3.5 w-3.5 flex-shrink-0 text-sky-400" />
+                  <span className="max-w-[92px] truncate text-xs font-semibold text-white sm:max-w-[120px]">
                     {selectedLocation.airport}
                   </span>
-                  <span className="hidden sm:inline text-[10px] text-slate-400 truncate max-w-[100px]">
+                  <span className="hidden truncate text-[10px] text-slate-400 lg:inline max-w-[120px]">
                     {selectedLocation.name}
                   </span>
                 </div>
               </div>
             </div>
 
+            <div className="hidden items-center gap-3 sm:flex">
+              <TabsList className="h-auto flex-1 justify-start overflow-x-auto rounded-2xl border border-white/8 bg-[#0f2237]/70 p-1 text-slate-300 shadow-inner shadow-slate-950/30">
+                {workspaceTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <TabsTrigger
+                      key={tab.value}
+                      value={tab.value}
+                      className="h-9 flex-none gap-2 rounded-xl border-0 px-3 text-xs font-semibold text-slate-300 data-[state=active]:bg-sky-400/15 data-[state=active]:text-white data-[state=active]:shadow-none"
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {tab.label}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`rounded-xl border px-3 text-xs font-semibold ${
+                    isDiscussionPanelOpen
+                      ? "border-sky-400/30 bg-sky-400/12 text-white"
+                      : "border-white/8 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white"
+                  }`}
+                  onClick={() => {
+                    setIsDiscussionPanelOpen((prev) => !prev);
+                    setIsAIPanelOpen(false);
+                  }}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Discussion
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`rounded-xl border px-3 text-xs font-semibold ${
+                    isAIPanelOpen
+                      ? "border-sky-400/30 bg-sky-400/12 text-white"
+                      : "border-white/8 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white"
+                  }`}
+                  onClick={() => {
+                    setIsAIPanelOpen((prev) => !prev);
+                    setIsDiscussionPanelOpen(false);
+                  }}
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  AI
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`rounded-xl border px-3 text-xs font-semibold ${
+                    activeTab === "settings"
+                      ? "border-sky-400/30 bg-sky-400/12 text-white"
+                      : "border-white/8 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white"
+                  }`}
+                  onClick={() => handleTabChange("settings")}
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  Settings
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1288,7 +1370,7 @@ export default function App() {
 
         {/* Tab Content */}
         <WeatherProvider lat={selectedLocation.lat} lon={selectedLocation.lon}>
-        <div className="flex-1 min-h-0 bg-[#0c1929] lg:overflow-y-auto">
+        <div className="flex-1 min-h-0 bg-[#081320] lg:overflow-y-auto">
           <TabsContent value="overview" className="m-0 h-full focus-visible:ring-0 data-[state=active]:animate-in data-[state=active]:fade-in-0 data-[state=active]:duration-200">
             <div className="w-full h-full p-2 sm:p-3">
               <CurrentWeather
@@ -1359,7 +1441,7 @@ export default function App() {
       {isDiscussionPanelOpen && (
         <div className="fixed inset-0 z-[200]" role="dialog" aria-modal="true" aria-labelledby="discussion-panel-title" onKeyDown={(e) => { if (e.key === "Escape") setIsDiscussionPanelOpen(false); }}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsDiscussionPanelOpen(false)} />
-          <div className="absolute bottom-16 sm:bottom-14 left-0 right-0 max-h-[75vh] bg-[#0c1e32] border border-white/10 rounded-t-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200">
+          <div className="absolute bottom-16 left-0 right-0 max-h-[75vh] bg-[#0c1e32] border border-white/10 rounded-t-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200 sm:bottom-0">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0f2237] flex-shrink-0">
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-sky-400" />
@@ -1395,7 +1477,7 @@ export default function App() {
             return (
               <button
                 key={value}
-                onClick={() => setActiveTab(value)}
+                onClick={() => handleTabChange(value)}
                 className={`flex-1 flex flex-col items-center justify-center gap-1 relative transition-all duration-150 active:scale-95 touch-manipulation ${
                   isActive ? "text-sky-400" : "text-slate-500 hover:text-slate-300"
                 }`}
@@ -1420,41 +1502,6 @@ export default function App() {
           </button>
         </div>
       </nav>
-
-      {/* Fixed Bottom Bar — desktop only */}
-      <div className="fixed bottom-0 left-0 right-0 z-[150] hidden sm:block bg-gradient-to-r from-[#0c1929] to-[#0f2645] border-t border-slate-700/60 shadow-lg shadow-black/20">
-        <div className="flex items-center px-2 sm:px-6 py-2">
-          <div className="flex-shrink-0 min-w-0 mr-2">
-            <Footer location={selectedLocation} />
-          </div>
-          <div className="flex-1 flex items-center justify-center gap-2 sm:gap-3">
-            <Button
-              variant="ghost"
-              className="h-10 sm:h-12 text-slate-200 hover:text-white hover:bg-slate-700/50 rounded-xl px-3 sm:px-8 border border-slate-600/50 bg-slate-800/40 text-sm sm:text-base"
-              onClick={() => {
-                setIsDiscussionPanelOpen(!isDiscussionPanelOpen);
-                if (isAIPanelOpen) setIsAIPanelOpen(false);
-              }}
-              aria-label="Area Forecast Discussion"
-            >
-              <FileText className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="font-semibold ml-1.5 sm:ml-2">Discussion</span>
-            </Button>
-            <Button
-              variant="ghost"
-              className="h-10 sm:h-12 text-slate-200 hover:text-white hover:bg-slate-700/50 rounded-xl px-3 sm:px-8 border border-slate-600/50 bg-slate-800/40 text-sm sm:text-base"
-              onClick={() => {
-                setIsAIPanelOpen(!isAIPanelOpen);
-                if (isDiscussionPanelOpen) setIsDiscussionPanelOpen(false);
-              }}
-              aria-label="Chat with AI assistant"
-            >
-              <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
-              <span className="font-semibold ml-1.5 sm:ml-2">Chat</span>
-            </Button>
-          </div>
-        </div>
-      </div>
     </div>
     </ProfileProvider>
   );
